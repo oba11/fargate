@@ -15,15 +15,16 @@ import (
 const typeTask string = "task"
 
 type TaskRunOperation struct {
-	Cpu              string
-	EnvVars          []ECS.EnvVar
-	Image            string
-	Memory           string
-	Num              int64
-	SecurityGroupIds []string
-	SubnetIds        []string
-	TaskName         string
-	TaskRole         string
+	Cpu               string
+	EnvVars           []ECS.EnvVar
+	Image             string
+	Memory            string
+	Num               int64
+	SecurityGroupIds  []string
+	SubnetIds         []string
+	TaskName          string
+	TaskDefinitionArn string
+	TaskRole          string
 }
 
 func (o *TaskRunOperation) Validate() {
@@ -50,6 +51,7 @@ var (
 	flagTaskRunMemory           string
 	flagTaskRunSecurityGroupIds []string
 	flagTaskRunSubnetIds        []string
+	flagTaskDefinitionArn       string
 	flagTaskRunTaskRole         string
 )
 
@@ -108,14 +110,15 @@ assume this role.`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		operation := &TaskRunOperation{
-			Cpu:              flagTaskRunCpu,
-			Image:            flagTaskRunImage,
-			Memory:           flagTaskRunMemory,
-			Num:              flagTaskRunNum,
-			SecurityGroupIds: flagTaskRunSecurityGroupIds,
-			SubnetIds:        flagTaskRunSubnetIds,
-			TaskName:         args[0],
-			TaskRole:         flagTaskRunTaskRole,
+			Cpu:               flagTaskRunCpu,
+			Image:             flagTaskRunImage,
+			Memory:            flagTaskRunMemory,
+			Num:               flagTaskRunNum,
+			SecurityGroupIds:  flagTaskRunSecurityGroupIds,
+			SubnetIds:         flagTaskRunSubnetIds,
+			TaskName:          args[0],
+			TaskDefinitionArn: flagTaskDefinitionArn,
+			TaskRole:          flagTaskRunTaskRole,
 		}
 
 		operation.SetEnvVars(flagTaskRunEnvVars)
@@ -133,6 +136,7 @@ func init() {
 	taskRunCmd.Flags().StringVarP(&flagTaskRunMemory, "memory", "m", "512", "Amount of MiB to allocate for each task")
 	taskRunCmd.Flags().StringSliceVar(&flagTaskRunSecurityGroupIds, "security-group-id", []string{}, "ID of a security group to apply to the task (can be specified multiple times)")
 	taskRunCmd.Flags().StringSliceVar(&flagTaskRunSubnetIds, "subnet-id", []string{}, "ID of a subnet in which to place the task (can be specified multiple times)")
+	taskRunCmd.Flags().StringVarP(&flagTaskDefinitionArn, "task-definition-arn", "", "", "The family and revision (family:revision ) or full ARN of the task definition to run")
 	taskRunCmd.Flags().StringVarP(&flagTaskRunTaskRole, "task-role", "", "", "Name or ARN of an IAM role that the tasks can assume")
 	taskCmd.AddCommand(taskRunCmd)
 }
@@ -155,52 +159,56 @@ func runTask(operation *TaskRunOperation) {
 		operation.SubnetIds, _ = ec2.GetDefaultSubnetIDs()
 	}
 
-	if operation.Image == "" {
-		var repositoryUri, tag string
+	if operation.TaskDefinitionArn == "" {
 
-		if ecr.IsRepositoryCreated(operation.TaskName) {
-			repositoryUri = ecr.GetRepositoryUri(operation.TaskName)
-		} else {
-			repositoryUri = ecr.CreateRepository(operation.TaskName)
+		if operation.Image == "" {
+			var repositoryUri, tag string
+
+			if ecr.IsRepositoryCreated(operation.TaskName) {
+				repositoryUri = ecr.GetRepositoryUri(operation.TaskName)
+			} else {
+				repositoryUri = ecr.CreateRepository(operation.TaskName)
+			}
+
+			if git.IsCwdGitRepo() {
+				tag = git.GetShortSha()
+			} else {
+				tag = docker.GenerateTag()
+			}
+
+			repository := docker.NewRepository(repositoryUri)
+			username, password := ecr.GetUsernameAndPassword()
+
+			repository.Login(username, password)
+			repository.Build(tag)
+			repository.Push(tag)
+
+			operation.Image = repository.UriFor(tag)
 		}
 
-		if git.IsCwdGitRepo() {
-			tag = git.GetShortSha()
-		} else {
-			tag = docker.GenerateTag()
-		}
+		operation.TaskDefinitionArn = ecs.CreateTaskDefinition(
+			&ECS.CreateTaskDefinitionInput{
+				Cpu:              operation.Cpu,
+				EnvVars:          operation.EnvVars,
+				ExecutionRoleArn: ecsTaskExecutionRoleArn,
+				Image:            operation.Image,
+				LogGroupName:     logGroupName,
+				LogRegion:        region,
+				Memory:           operation.Memory,
+				Name:             operation.TaskName,
+				Type:             typeTask,
+				TaskRole:         operation.TaskRole,
+			},
+		)
 
-		repository := docker.NewRepository(repositoryUri)
-		username, password := ecr.GetUsernameAndPassword()
-
-		repository.Login(username, password)
-		repository.Build(tag)
-		repository.Push(tag)
-
-		operation.Image = repository.UriFor(tag)
 	}
-
-	taskDefinitionArn := ecs.CreateTaskDefinition(
-		&ECS.CreateTaskDefinitionInput{
-			Cpu:              operation.Cpu,
-			EnvVars:          operation.EnvVars,
-			ExecutionRoleArn: ecsTaskExecutionRoleArn,
-			Image:            operation.Image,
-			LogGroupName:     logGroupName,
-			LogRegion:        region,
-			Memory:           operation.Memory,
-			Name:             operation.TaskName,
-			Type:             typeTask,
-			TaskRole:         operation.TaskRole,
-		},
-	)
 
 	ecs.RunTask(
 		&ECS.RunTaskInput{
 			ClusterName:       clusterName,
 			Count:             operation.Num,
 			TaskName:          operation.TaskName,
-			TaskDefinitionArn: taskDefinitionArn,
+			TaskDefinitionArn: operation.TaskDefinitionArn,
 			SubnetIds:         operation.SubnetIds,
 			SecurityGroupIds:  operation.SecurityGroupIds,
 		},
