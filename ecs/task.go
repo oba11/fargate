@@ -31,6 +31,7 @@ type Task struct {
 	SecurityGroupIds []string
 	StartedBy        string
 	SubnetId         string
+	Command          []string
 	TaskId           string
 	TaskRole         string
 }
@@ -240,6 +241,10 @@ func (ecs *ECS) DescribeTasks(taskIds []string) []Task {
 					Value: aws.StringValue(environment.Value),
 				},
 			)
+		}
+
+		if len(t.Overrides.ContainerOverrides[0].Command) > 0 {
+			task.Command = aws.StringValueSlice(t.Overrides.ContainerOverrides[0].Command)
 		}
 
 		if len(t.Attachments) == 1 {

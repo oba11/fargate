@@ -87,6 +87,10 @@ func getTaskInfo(operation *TaskInfoOperation) {
 			console.KeyValue("    Task Role", "%s\n", task.TaskRole)
 		}
 
+		if len(task.Command) > 0 {
+			console.KeyValue("    Command", "%s\n", task.Command)
+		}
+
 		console.KeyValue("    Subnet", "%s\n", task.SubnetId)
 		console.KeyValue("    Security Groups", "%s\n", strings.Join(eni.SecurityGroupIds, ", "))
 
