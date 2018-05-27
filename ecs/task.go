@@ -47,6 +47,7 @@ type TaskGroup struct {
 type RunTaskInput struct {
 	ClusterName       string
 	Count             int64
+	Command           []string
 	SecurityGroupIds  []string
 	SubnetIds         []string
 	TaskDefinitionArn string
@@ -54,22 +55,35 @@ type RunTaskInput struct {
 }
 
 func (ecs *ECS) RunTask(i *RunTaskInput) {
-	_, err := ecs.svc.RunTask(
-		&awsecs.RunTaskInput{
-			Cluster:        aws.String(i.ClusterName),
-			Count:          aws.Int64(i.Count),
-			TaskDefinition: aws.String(i.TaskDefinitionArn),
-			LaunchType:     aws.String(awsecs.CompatibilityFargate),
-			StartedBy:      aws.String(fmt.Sprintf(startedByFormat, i.TaskName)),
-			NetworkConfiguration: &awsecs.NetworkConfiguration{
-				AwsvpcConfiguration: &awsecs.AwsVpcConfiguration{
-					AssignPublicIp: aws.String(awsecs.AssignPublicIpEnabled),
-					Subnets:        aws.StringSlice(i.SubnetIds),
-					SecurityGroups: aws.StringSlice(i.SecurityGroupIds),
-				},
+	runTaskInput := &awsecs.RunTaskInput{
+		Cluster:        aws.String(i.ClusterName),
+		Count:          aws.Int64(i.Count),
+		TaskDefinition: aws.String(i.TaskDefinitionArn),
+		LaunchType:     aws.String(awsecs.CompatibilityFargate),
+		StartedBy:      aws.String(fmt.Sprintf(startedByFormat, i.TaskName)),
+		NetworkConfiguration: &awsecs.NetworkConfiguration{
+			AwsvpcConfiguration: &awsecs.AwsVpcConfiguration{
+				AssignPublicIp: aws.String(awsecs.AssignPublicIpEnabled),
+				Subnets:        aws.StringSlice(i.SubnetIds),
+				SecurityGroups: aws.StringSlice(i.SecurityGroupIds),
 			},
 		},
-	)
+		Overrides: &awsecs.TaskOverride{
+			ContainerOverrides: []*awsecs.ContainerOverride{},
+		},
+	}
+
+	if len(i.Command) > 0 {
+		runTaskInput.Overrides.ContainerOverrides = append(
+			runTaskInput.Overrides.ContainerOverrides,
+			&awsecs.ContainerOverride{
+				Command: aws.StringSlice(i.Command),
+				Name:    aws.String(i.TaskName),
+			},
+		)
+	}
+
+	_, err := ecs.svc.RunTask(runTaskInput)
 
 	if err != nil {
 		console.ErrorExit(err, "Could not run ECS task")

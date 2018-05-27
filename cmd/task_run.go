@@ -22,6 +22,7 @@ type TaskRunOperation struct {
 	Num               int64
 	SecurityGroupIds  []string
 	SubnetIds         []string
+	Command           []string
 	TaskName          string
 	TaskDefinitionArn string
 	TaskRole          string
@@ -51,6 +52,7 @@ var (
 	flagTaskRunMemory           string
 	flagTaskRunSecurityGroupIds []string
 	flagTaskRunSubnetIds        []string
+	flagCommand                 []string
 	flagTaskDefinitionArn       string
 	flagTaskRunTaskRole         string
 )
@@ -117,6 +119,7 @@ assume this role.`,
 			SecurityGroupIds:  flagTaskRunSecurityGroupIds,
 			SubnetIds:         flagTaskRunSubnetIds,
 			TaskName:          args[0],
+			Command:           flagCommand,
 			TaskDefinitionArn: flagTaskDefinitionArn,
 			TaskRole:          flagTaskRunTaskRole,
 		}
@@ -136,19 +139,16 @@ func init() {
 	taskRunCmd.Flags().StringVarP(&flagTaskRunMemory, "memory", "m", "512", "Amount of MiB to allocate for each task")
 	taskRunCmd.Flags().StringSliceVar(&flagTaskRunSecurityGroupIds, "security-group-id", []string{}, "ID of a security group to apply to the task (can be specified multiple times)")
 	taskRunCmd.Flags().StringSliceVar(&flagTaskRunSubnetIds, "subnet-id", []string{}, "ID of a subnet in which to place the task (can be specified multiple times)")
+	taskRunCmd.Flags().StringSliceVar(&flagCommand, "command", []string{}, "Override command to pass to the task definition, (can be specified multiple times)")
 	taskRunCmd.Flags().StringVarP(&flagTaskDefinitionArn, "task-definition-arn", "", "", "The family and revision (family:revision ) or full ARN of the task definition to run")
 	taskRunCmd.Flags().StringVarP(&flagTaskRunTaskRole, "task-role", "", "", "Name or ARN of an IAM role that the tasks can assume")
 	taskCmd.AddCommand(taskRunCmd)
 }
 
 func runTask(operation *TaskRunOperation) {
-	cwl := CWL.New(sess)
 	ec2 := EC2.New(sess)
 	ecr := ECR.New(sess)
 	ecs := ECS.New(sess, clusterName)
-	iam := IAM.New(sess)
-	ecsTaskExecutionRoleArn := iam.CreateEcsTaskExecutionRole()
-	logGroupName := cwl.CreateLogGroup(taskLogGroupFormat, operation.TaskName)
 
 	if len(operation.SecurityGroupIds) == 0 {
 		defaultSecurityGroupID, _ := ec2.GetDefaultSecurityGroupID()
@@ -160,6 +160,10 @@ func runTask(operation *TaskRunOperation) {
 	}
 
 	if operation.TaskDefinitionArn == "" {
+		cwl := CWL.New(sess)
+		iam := IAM.New(sess)
+		ecsTaskExecutionRoleArn := iam.CreateEcsTaskExecutionRole()
+		logGroupName := cwl.CreateLogGroup(taskLogGroupFormat, operation.TaskName)
 
 		if operation.Image == "" {
 			var repositoryUri, tag string
@@ -211,6 +215,7 @@ func runTask(operation *TaskRunOperation) {
 			TaskDefinitionArn: operation.TaskDefinitionArn,
 			SubnetIds:         operation.SubnetIds,
 			SecurityGroupIds:  operation.SecurityGroupIds,
+			Command:           operation.Command,
 		},
 	)
 
