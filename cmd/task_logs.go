@@ -7,6 +7,7 @@ import (
 )
 
 var (
+	flagLogGroupName      string
 	flagTaskLogsFilter    string
 	flagTaskLogsEndTime   string
 	flagTaskLogsStartTime string
@@ -44,8 +45,12 @@ You can filter logs for specific term by passing a filter expression via the
 to search for log messages that include all terms.`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		LogGroupName := fmt.Sprintf(taskLogGroupFormat, args[0])
+		if flagLogGroupName != "" {
+			LogGroupName = flagLogGroupName
+		}
 		operation := &GetLogsOperation{
-			LogGroupName: fmt.Sprintf(taskLogGroupFormat, args[0]),
+			LogGroupName: LogGroupName,
 			Filter:       flagTaskLogsFilter,
 			Follow:       flagTaskLogsFollow,
 			Namespace:    args[0],
@@ -62,6 +67,7 @@ to search for log messages that include all terms.`,
 func init() {
 	taskCmd.AddCommand(taskLogsCmd)
 
+	taskLogsCmd.Flags().StringVar(&flagLogGroupName, "log-group-name", "", "Name of the log group if different from original fargate/<task-group-name>/<task-id>")
 	taskLogsCmd.Flags().BoolVarP(&flagTaskLogsFollow, "follow", "f", false, "Poll logs and continuously print new events")
 	taskLogsCmd.Flags().StringVar(&flagTaskLogsFilter, "filter", "", "Filter pattern to apply")
 	taskLogsCmd.Flags().StringVar(&flagTaskLogsStartTime, "start", "", "Earliest time to return logs (e.g. -1h, 2018-01-01 09:36:00 EST")
