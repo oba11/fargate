@@ -211,6 +211,7 @@ func runTask(operation *TaskRunOperation) {
 		&ECS.RunTaskInput{
 			ClusterName:       clusterName,
 			Count:             operation.Num,
+			EnvVars:           operation.EnvVars,
 			TaskName:          operation.TaskName,
 			TaskDefinitionArn: operation.TaskDefinitionArn,
 			SubnetIds:         operation.SubnetIds,

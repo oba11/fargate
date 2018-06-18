@@ -49,6 +49,7 @@ type RunTaskInput struct {
 	ClusterName       string
 	Count             int64
 	Command           []string
+	EnvVars           []EnvVar
 	SecurityGroupIds  []string
 	SubnetIds         []string
 	TaskDefinitionArn string
@@ -74,11 +75,22 @@ func (ecs *ECS) RunTask(i *RunTaskInput) {
 		},
 	}
 
-	if len(i.Command) > 0 {
+	var environment []*awsecs.KeyValuePair
+	for _, envVar := range i.EnvVars {
+		environment = append(environment,
+			&awsecs.KeyValuePair{
+				Name:  aws.String(envVar.Key),
+				Value: aws.String(envVar.Value),
+			},
+		)
+	}
+
+	if (len(i.Command) > 0) || (len(i.EnvVars) > 0) {
 		runTaskInput.Overrides.ContainerOverrides = append(
 			runTaskInput.Overrides.ContainerOverrides,
 			&awsecs.ContainerOverride{
 				Command: aws.StringSlice(i.Command),
+				Environment: environment,
 				Name:    aws.String(i.TaskName),
 			},
 		)
@@ -233,14 +245,34 @@ func (ecs *ECS) DescribeTasks(taskIds []string) []Task {
 		task.Image = aws.StringValue(taskDefinition.ContainerDefinitions[0].Image)
 		task.TaskRole = aws.StringValue(taskDefinition.TaskRoleArn)
 
+		var keys []string
+		if len(t.Overrides.ContainerOverrides[0].Environment) > 0 {
+			for _, envOverride := range t.Overrides.ContainerOverrides[0].Environment {
+				keys = append(keys, aws.StringValue(envOverride.Name))
+				task.EnvVars = append(
+					task.EnvVars,
+					EnvVar{
+						Key:   aws.StringValue(envOverride.Name),
+						Value: aws.StringValue(envOverride.Value),
+					},
+				)
+			}
+		}
+
 		for _, environment := range taskDefinition.ContainerDefinitions[0].Environment {
-			task.EnvVars = append(
-				task.EnvVars,
-				EnvVar{
-					Key:   aws.StringValue(environment.Name),
-					Value: aws.StringValue(environment.Value),
-				},
-			)
+			for _, key := range keys {
+				if aws.StringValue(environment.Name) == key {
+					continue
+				}
+
+				task.EnvVars = append(
+					task.EnvVars,
+					EnvVar{
+						Key:   aws.StringValue(environment.Name),
+						Value: aws.StringValue(environment.Value),
+					},
+				)
+			}
 		}
 
 		if len(t.Overrides.ContainerOverrides[0].Command) > 0 {
